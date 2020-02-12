@@ -1,7 +1,7 @@
 import socket
 import select
 
-HEADER_LENGTH = 10
+HEADER_LENGTH = 20
 
 IP = "127.0.0.1"
 PORT = 1234
@@ -33,6 +33,7 @@ clients = {}
 
 print(f'Listening for connections on {IP}:{PORT}...')
 
+
 # Handles message receiving
 def receive_message(client_socket):
 
@@ -59,6 +60,7 @@ def receive_message(client_socket):
         # what sends information about closing the socket (shutdown read/write) and that's also a
         # cause when we receive an empty message
         return False
+
 
 while True:
 
@@ -90,6 +92,7 @@ while True:
 
             # Client should send his name right away, receive it
             user = receive_message(client_socket)
+            username = user['data'].decode('utf-8').split('*|*')[0]
 
             # If False - client disconnected before he sent his name
             if user is False:
@@ -100,18 +103,21 @@ while True:
 
             # Also save username and username header
             clients[client_socket] = user
+            # client_socket.send(user['header'] + user['data'])
+            
 
-            print('Accepted new connection from {}:{}, username: {}'.format(*client_address, user['data'].decode('utf-8')))
+            print('Accepted new connection from {}:{}, username: {}'.format(*client_address, username))
 
         # Else existing socket is sending a message
         else:
 
             # Receive message
             message = receive_message(notified_socket)
+            print('recieved message', message)
 
             # If False, client disconnected, cleanup
             if message is False:
-                print('Closed connection from: {}'.format(clients[notified_socket]['data'].decode('utf-8')))
+                print('Closed connection from: {}'.format(clients[notified_socket]['data'].decode('utf-8').split('*|*')[0]))
 
                 # Remove from list for socket.socket()
                 sockets_list.remove(notified_socket)
@@ -123,19 +129,29 @@ while True:
 
             # Get user by notified socket, so we will know who sent the message
             user = clients[notified_socket]
-
-            print(f"Received message from {user['data'].decode('utf-8')}: {message['data'].decode('utf-8')}")
+            # from whom the message was sent
+            from_user = user['data'].decode('utf-8')
+            # message sent by the user
+            _message = message['data'].decode('utf-8').split('*|*')[0]
+            message_length = f"{len(_message):<{HEADER_LENGTH}}".encode('utf-8')
+            # to whom the message should go , if message should go to all, 
+            # it contains 'all'  instead of 'username'
+            to_user = message['data'].decode('utf-8').split('*|*')[1]
+            print(f"Received message from {user['data'].decode('utf-8')}: {_message}")
 
             # Iterate over connected clients and broadcast message
-            for client_socket in clients:
-
+            for client_socket, user in clients.items():
+                username = user['data'].decode('utf-8')
                 # But don't send it back to origin
                 if client_socket != notified_socket:
+                    if to_user == 'all' or to_user == username:
+                        message = from_user + '*|*' + _message
+                        message = message.encode('utf-8')
+                        message_header = f"{len(message):<{HEADER_LENGTH}}".encode('utf-8')
+                        client_socket.send(message_header + message)
 
-                    # Send user and message (both with their headers)
-                    # We are reusing here message header sent by sender, and saved username header
-                    # send by user when he connected
-                    client_socket.send(user['header'] + user['data'] + message['header'] + message['data'])
+            notified_socket.send(user['header']+ user['data'])
+
 
     # It's not really necessary to have this, but will handle some socket exceptions just in case
     for notified_socket in exception_sockets:

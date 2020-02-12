@@ -1,9 +1,11 @@
-import socket
-import select
 import errno
+import select
+import socket
 import sys
+import threading
 
-HEADER_LENGTH = 10
+
+HEADER_LENGTH = 20
 
 IP = "127.0.0.1"
 PORT = 1234
@@ -20,7 +22,7 @@ client_socket.connect((IP, PORT))
 
 # Set connection to non-blocking state, so .recv() call won;t block, just return some exception 
 # we'll handle
-client_socket.setblocking(False)
+# client_socket.setblocking(False)
 
 # Prepare username and header and send them
 # We need to encode username to bytes, then count number of bytes and prepare header of fixed size,
@@ -29,24 +31,11 @@ username = my_username.encode('utf-8')
 username_header = f"{len(username):<{HEADER_LENGTH}}".encode('utf-8')
 client_socket.send(username_header + username)
 
-while True:
 
-    # Wait for user to input a message
-    message = input(f'{my_username} > ')
-
-    # If message is not empty - send it
-    if message:
-
-        # Encode message to bytes, prepare header and convert to bytes, like for username above,
-        # then send
-        message = message.encode('utf-8')
-        message_header = f"{len(message):<{HEADER_LENGTH}}".encode('utf-8')
-        client_socket.send(message_header + message)
-
+def get_message():
     try:
         # Now we want to loop over received messages (there might be more than one) and print them
         while True:
-
             # Receive our "header" containing username length, it's size is defined and constant
             username_header = client_socket.recv(HEADER_LENGTH)
 
@@ -61,15 +50,12 @@ while True:
 
             # Receive and decode username
             username = client_socket.recv(username_length).decode('utf-8')
-
-            # Now do the same for message (as we received username, we received whole message,
-            # there's no need to check if it has any length)
-            message_header = client_socket.recv(HEADER_LENGTH)
-            message_length = int(message_header.decode('utf-8').strip())
-            message = client_socket.recv(message_length).decode('utf-8')
-
-            # Print message
-            print(f'{username} > {message}')
+            # split here again to get the from_user and message
+            data = username.split('*|*')
+            if len(data) > 1:
+                username = data[0]
+                message = data[1]
+                print(f'{username} > {message}\n')
 
     except IOError as e:
         # This is normal on non blocking connections - when there are no incoming data error is 
@@ -81,10 +67,25 @@ while True:
             print('Reading error: {}'.format(str(e)))
             sys.exit()
 
-        # We just did not receive anything
-        continue
-
     except Exception as e:
         # Any other exception - something happened, exit
         print('Reading error: '.format(str(e)))
         sys.exit()
+
+# running seoarate thread to show messages sent by other users
+t1 = threading.Thread(target=get_message)
+t1.start()
+# get_message()
+
+while True:
+
+    to_user = input('Enter username to send message or type "all" to send to all :')
+    message = input(f'{my_username} > ')
+
+    # If message is not empty - send it
+    if message and to_user:
+        # add both to_user and message and send it to user
+        message = message + '*|*' + to_user
+        message = message.encode('utf-8')
+        message_header = f"{len(message):<{HEADER_LENGTH}}".encode('utf-8')
+        client_socket.send(message_header + message)
